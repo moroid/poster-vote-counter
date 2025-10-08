@@ -17,7 +17,7 @@
     font-size:1rem;padding:10px;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box;width:100%;background:#fff;
   }
   button{
-    font-size:.95rem;padding:8px 12px;border-radius:10px;box-sizing:border-box;cursor:pointer;border:1px solid #d1d5db;background:#fff;
+    font-size:1rem;padding:8px 12px;border-radius:10px;box-sizing:border-box;cursor:pointer;border:1px solid #d1d5db;background:#fff;
     transition:background .15s,color .15s,border-color .15s;
   }
   button:disabled{opacity:.6;pointer-events:none;}
@@ -59,17 +59,94 @@
     border-bottom:1px solid #d1d5db;
   }
   .score{display:block;font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums;text-align:center;line-height:1;margin:4px 0;}
-  .counter{display:flex;gap:12px;justify-content:center;width:100%;}
+  .counter{
+    display:flex;
+    width:100%;
+    margin-top:12px;
+    border:1px solid #d1d5db;
+    border-radius:12px;
+    overflow:hidden;
+    background:#fff;
+  }
   .counter-btn{
-    width:clamp(36px,8vw,48px);
-    height:clamp(36px,8vw,48px);
+    flex:1;
+    padding:clamp(12px,3vw,16px);
     display:flex;
     align-items:center;
     justify-content:center;
-    border-radius:50%;
-    padding:0;
-    font-size:clamp(.9rem,2.8vw,1rem);
+    font-size:clamp(1rem,2.6vw,1.1rem);
+    border:none;
+    border-radius:0;
+    line-height:1;
   }
+  .counter-btn + .counter-btn{
+    border-left:1px solid rgba(255,255,255,.6);
+  }
+  .summary{
+    margin-top:24px;
+    background:#fff;
+    border:1px solid #d1d5db;
+    border-radius:12px;
+    padding:16px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);
+  }
+  .summary-title{margin:0 0 12px;font-size:1rem;}
+  .summary-list-body ul{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .summary-item{
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:8px 12px;
+    border-radius:10px;
+    background:#f3f4f6;
+    font-variant-numeric:tabular-nums;
+    box-sizing:border-box;
+  }
+  .summary-item .summary-score{
+    font-weight:600;
+    flex:0 0 auto;
+    min-width:3.5rem;
+    text-align:right;
+  }
+  .summary-item.positive{color:var(--primary);}
+  .summary-item.negative{color:var(--danger);}
+  .summary-item .summary-poster{
+    font-weight:500;
+    flex:1 1 auto;
+    min-width:0;
+    overflow-wrap:anywhere;
+  }
+  .summary-empty{margin:0;color:var(--muted);font-size:.95rem;}
+  .modal-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(17,24,39,.55);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    backdrop-filter:blur(2px);
+  }
+  .modal{
+    width:min(320px, calc(100% - 32px));
+    background:#fff;
+    border-radius:14px;
+    padding:24px 20px 20px;
+    box-shadow:0 20px 45px rgba(15,23,42,.15);
+  }
+  .modal h3{margin:0 0 10px;font-size:1.05rem;}
+  .modal p{margin:0;color:var(--muted);font-size:.95rem;}
+  .modal-buttons{margin-top:20px;display:flex;justify-content:flex-end;gap:12px;}
+  .modal-buttons button{min-width:88px;}
   .actions{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;}
   .actions .btn{flex:1 1 200px;}
   .btn.primary.submit{width:auto;}
@@ -99,8 +176,18 @@
       <button class="btn primary submit" id="submitBtn" type="button">集計を送信</button>
     </div>
 
+    <div class="summary" aria-live="polite">
+      <h2 class="summary-title">現在の集計</h2>
+      <div id="summaryList" class="summary-list-body">
+        <p class="summary-empty">現在の集計はありません。</p>
+      </div>
+    </div>
+
     <div id="status" class="status" role="status" aria-live="polite"></div>
     <p class="muted">ネットワークが不安定な場合はブラウザに一時保存し、オンラインに復帰すると自動送信されます。</p>
+  </div>
+
+  <p class="qr-tip">※ ポスター用QRコードは <code>https://{username}.github.io/{repo}/?poster=XX</code> を利用できます。</p>
 </div>
 
 <script>
@@ -160,14 +247,42 @@ function updateScoreDisplay(posterId) {
   el.textContent = value;
 
   const card = el.closest('.poster-card');
-  if (!card) return;
-
-  card.classList.remove('positive', 'negative');
-  if (value > 0) {
-    card.classList.add('positive');
-  } else if (value < 0) {
-    card.classList.add('negative');
+  if (card) {
+    card.classList.remove('positive', 'negative');
+    if (value > 0) {
+      card.classList.add('positive');
+    } else if (value < 0) {
+      card.classList.add('negative');
+    }
   }
+
+  renderSummary();
+}
+
+function renderSummaryList() {
+  const container = document.getElementById('summaryList');
+  if (!container) return;
+
+  const items = scores
+    .map((score, index) => ({ posterId: index + 1, score }))
+    .filter(item => item.score !== 0);
+
+  if (!items.length) {
+    container.innerHTML = '<p class="summary-empty">現在の集計はありません。</p>';
+    return;
+  }
+
+  const listItems = items.map(item => {
+    const sign = item.score > 0 ? '+' : '';
+    const cls = item.score > 0 ? 'summary-item positive' : 'summary-item negative';
+    return `<li class="${cls}"><span class="summary-poster">#${item.posterId}</span><span class="summary-score">${sign}${item.score}</span></li>`;
+  });
+
+  container.innerHTML = `<ul>${listItems.join('')}</ul>`;
+}
+
+function renderSummary() {
+  renderSummaryList();
 }
 
 function handleGridClick(event) {
@@ -191,6 +306,50 @@ function resetScores() {
     el.textContent = '0';
     const card = el.closest('.poster-card');
     if (card) card.classList.remove('positive', 'negative');
+  });
+  renderSummary();
+}
+
+function showResetConfirm() {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="resetConfirmTitle">
+        <h3 id="resetConfirmTitle">リセットの確認</h3>
+        <p>入力中の集計をすべてリセットしますか？</p>
+        <div class="modal-buttons">
+          <button type="button" class="btn" data-action="cancel">キャンセル</button>
+          <button type="button" class="btn primary" data-action="ok">リセット</button>
+        </div>
+      </div>
+    `;
+
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        removeOverlay(false);
+      }
+    };
+
+    const removeOverlay = (result) => {
+      overlay.remove();
+      document.removeEventListener('keydown', handleKeydown);
+      resolve(result);
+    };
+
+    overlay.addEventListener('click', (event) => {
+      const action = event.target.getAttribute('data-action');
+      if (action === 'cancel') removeOverlay(false);
+      if (action === 'ok') removeOverlay(true);
+      if (!action && event.target === overlay) removeOverlay(false);
+    });
+
+    document.addEventListener('keydown', handleKeydown);
+
+    document.body.appendChild(overlay);
+    const okButton = overlay.querySelector('[data-action="ok"]');
+    if (okButton) okButton.focus();
   });
 }
 
@@ -330,12 +489,12 @@ async function submitScores() {
     }
   } catch (error) {
     enqueue(payload);
-  setStatus('送信に失敗したためキューに保存しました。', false);
-  cleared = true;
-} finally {
-  if (cleared) resetScores();
-  setTimeout(() => { busy = false; }, DEBOUNCE_MS);
-}
+    setStatus('送信に失敗したためキューに保存しました。', false);
+    cleared = true;
+  } finally {
+    if (cleared) resetScores();
+    setTimeout(() => { busy = false; }, DEBOUNCE_MS);
+  }
 }
 
 function resetAll() {
@@ -348,7 +507,12 @@ document.addEventListener('DOMContentLoaded', () => {
   buildGrid();
   document.getElementById('posterGrid').addEventListener('click', handleGridClick);
   document.getElementById('submitBtn').addEventListener('click', submitScores);
-  document.getElementById('resetBtn').addEventListener('click', resetAll);
+  document.getElementById('resetBtn').addEventListener('click', async (event) => {
+    event.preventDefault();
+    const confirmed = await showResetConfirm();
+    if (confirmed) resetAll();
+  });
+  renderSummary();
 
   if (
     Number.isInteger(highlightedPoster) &&
