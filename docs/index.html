@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Poster Counter</title>
+<style>
+  :root {
+    --fg:#222; --bg:#fafafa; --muted:#6b7280; --primary:#2563eb; --danger:#ef4444; --ok:#16a34a;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+  .wrap{max-width:640px;margin:0 auto;padding:24px;}
+  h1{font-size:1.25rem;margin:0 0 8px;}
+  .desc{color:var(--muted);margin-bottom:16px;}
+  label{display:block;font-size:.9rem;margin:14px 0 6px;}
+  select,input,button,textarea{
+    font-size:1rem;padding:10px;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box;width:100%;
+    background:#fff;
+  }
+  .row{display:flex;gap:10px;}
+  .row > *{flex:1;}
+  .btns{display:flex;gap:10px;margin-top:14px;}
+  .btn{cursor:pointer;}
+  .btn.primary{background:var(--primary);color:#fff;border:none;}
+  .btn.danger{background:var(--danger);color:#fff;border:none;}
+  .status{margin-top:12px;font-size:.95rem;}
+  .status.ok{color:var(--ok)}
+  .status.err{color:var(--danger)}
+  .muted{color:var(--muted);font-size:.9rem;margin-top:10px;}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  .qr-tip{font-size:.9rem;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Poster Counter</h1>
+  <p class="desc">ポスターIDを選び、＋1 / −1 でカウントします。URLに <code>?poster=23</code> を付けると初期選択されます。</p>
+
+  <div class="card">
+    <label for="poster">Poster ID（1〜60）</label>
+    <select id="poster" aria-label="Poster ID"></select>
+
+    <div class="row">
+      <div>
+        <label for="note">メモ（任意）</label>
+        <input id="note" placeholder="例：混雑／質問多い など">
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="btn primary" id="btnPlus"  type="button">＋1</button>
+      <button class="btn danger"  id="btnMinus" type="button">−1</button>
+    </div>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <div class="muted">
+      オフライン時は自動で再送キューに溜め、次回オンラインで送信します。連打は短時間抑制されます。
+    </div>
+  </div>
+
+  <p class="qr-tip">※ 各ポスターのQRは <code>https://{username}.github.io/{repo}/?poster=XX</code> を印刷してください。</p>
+</div>
+
+<script>
+/** 設定（変更） **/
+const GAS_URL = "https://script.google.com/macros/s/AKfycbyP1PHcyd84btMm_vZchCwdFP-TUOQu5QPiPNJdxpjFjJUFo-WRR7ey2Clma3bu0VeP/exec"; // ←置換
+const SHARED_TOKEN = "CHANGE_ME_OPTIONAL"; // Apps ScriptのSHARED_TOKENと一致させる。使わないなら "" のまま
+
+/** 内部状態 **/
+const params = new URLSearchParams(location.search);
+const defaultPoster = parseInt(params.get('poster') || '1');
+const MAX_POSTERS = 60;
+const DEBOUNCE_MS = 800;
+let busy = false;
+
+/** UI初期化 **/
+function posterOptions(n=60) {
+  return Array.from({length:n}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('');
+}
+function setDefaultPoster() {
+  const sel = document.getElementById('poster');
+  sel.innerHTML = posterOptions(MAX_POSTERS);
+  if (Number.isInteger(defaultPoster) && defaultPoster>=1 && defaultPoster<=MAX_POSTERS) {
+    sel.value = String(defaultPoster);
+  }
+}
+
+/** ステータス表示 **/
+function setStatus(msg, ok=false) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + (ok ? 'ok' : 'err');
+}
+
+/** 端末IDの永続化 **/
+function getClientId() {
+  let id = localStorage.getItem('client_id');
+  if (!id) {
+    id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now())+'-'+Math.random().toString(36).slice(2);
+    localStorage.setItem('client_id', id);
+  }
+  return id;
+}
+
+/** 再送キュー（オフライン時） **/
+const QUEUE_KEY = 'poster_queue';
+function enqueue(payload) {
+  const q = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  q.push(payload);
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+}
+async function flushQueue() {
+  const q = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  if (!q.length) return;
+  const remain = [];
+  for (const item of q) {
+    try {
+      const ok = await postOnce(item);
+      if (!ok) remain.push(item);
+    } catch {
+      remain.push(item);
+    }
+  }
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(remain));
+  if (remain.length===0) setStatus('オフライン中のデータを送信しました。', true);
+}
+
+/** 実送信：text/plainでプリフライト回避 **/
+async function postOnce(payload) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" }, // ←プリフライト回避
+    body: JSON.stringify(payload)
+  });
+  const text = await res.text();
+  if (text === 'OK') return true;
+  // 軽微なバリデーションエラーも返す
+  setStatus(`エラー: ${text}`, false);
+  return false;
+}
+
+/** 送信ハンドラ **/
+async function send(delta) {
+  if (busy) return;
+  busy = true;
+
+  const poster_id = parseInt(document.getElementById('poster').value);
+  const note = document.getElementById('note').value.trim();
+  const client_id = getClientId();
+
+  // 簡易入力検証
+  if (!Number.isInteger(poster_id) || poster_id<1 || poster_id>MAX_POSTERS) {
+    setStatus('Poster ID が不正です。', false);
+    busy = false;
+    return;
+  }
+  if (![1,-1].includes(delta)) {
+    setStatus('内部エラー（delta）。', false);
+    busy = false;
+    return;
+  }
+
+  const payload = { poster_id, delta, note, client_id, token: SHARED_TOKEN };
+
+  try {
+    // オンライン判定（参考程度）
+    if (!navigator.onLine) {
+      enqueue(payload);
+      setStatus('オフラインのためキューへ保存しました。復帰後に自動送信します。', false);
+    } else {
+      const ok = await postOnce(payload);
+      if (ok) {
+        setStatus('送信しました！', true);
+        document.getElementById('note').value = '';
+      } else {
+        // サーバ側でエラー → 手元に保持
+        enqueue(payload);
+        setStatus('一時的なエラーのためキューへ保存しました。', false);
+      }
+      // 溜まっている分があれば順次送信
+      await flushQueue();
+    }
+  } catch (e) {
+    enqueue(payload);
+    setStatus('送信に失敗。ネット接続を確認しましたら自動で再送します。', false);
+  } finally {
+    setTimeout(()=>{ busy = false; }, DEBOUNCE_MS); // 連打抑制
+  }
+}
+
+/** イベント登録 **/
+document.addEventListener('DOMContentLoaded', () => {
+  setDefaultPoster();
+  document.getElementById('btnPlus').addEventListener('click', () => send(1));
+  document.getElementById('btnMinus').addEventListener('click', () => send(-1));
+  // 復帰時に再送
+  window.addEventListener('online', flushQueue);
+  // ページ表示時にも一度試みる
+  flushQueue();
+});
+</script>
+</body>
+</html>
