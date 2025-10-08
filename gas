@@ -3,7 +3,7 @@ const SHEET_ID = '1S62KCYUV8wVTdRsgOXYQXX3K-gY3phIXxfJ7axIOwoI';
 const LOG_SHEET = 'Logs';
 const STATS_SHEET = 'Stats';
 const SHARED_TOKEN = 'CHANGE_ME_OPTIONAL';
-const MAX_POSTERS = 60;
+const MAX_POSTERS = 65;
 
 function doGet() {
   return ContentService
