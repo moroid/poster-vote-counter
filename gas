@@ -1,6 +1,7 @@
 /*** Apps Script: Web API ***/
 const SHEET_ID = '1S62KCYUV8wVTdRsgOXYQXX3K-gY3phIXxfJ7axIOwoI';
 const LOG_SHEET = 'Logs';
+const STATS_SHEET = 'Stats';
 const SHARED_TOKEN = 'CHANGE_ME_OPTIONAL';
 const MAX_POSTERS = 60;
 
@@ -43,7 +44,9 @@ function handleBatch(body, token) {
   const submittedAt = (body.submitted_at || '').toString();
   const batchId = (body.batch_id || Utilities.getUuid()).toString();
 
-  const rows = [];
+  const logRows = [];
+  const statsDelta = Array(MAX_POSTERS).fill(0);
+
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const posterId = Number(entry.poster_id);
@@ -56,26 +59,27 @@ function handleBatch(body, token) {
       return textResponse('INVALID_SCORE');
     }
 
-    rows.push([
+    logRows.push([
       new Date(),
       posterId,
       score,
-      '', // note is unused in the new UI, keep the column for compatibility
       clientId,
       token,
       batchId,
       submittedAt
     ]);
+
+    statsDelta[posterId - 1] += score;
   }
 
-  appendRows(rows);
+  appendLogRows(logRows);
+  applyStats(statsDelta);
   return textResponse('OK');
 }
 
 function handleSingle(body, token) {
   const posterId = Number(body.poster_id);
   const delta = Number(body.delta);
-  const note = (body.note || '').toString();
   const clientId = (body.client_id || '').toString();
 
   if (!Number.isInteger(posterId) || posterId < 1 || posterId > MAX_POSTERS) {
@@ -85,21 +89,23 @@ function handleSingle(body, token) {
     return textResponse('INVALID_DELTA');
   }
 
-  appendRows([[
+  appendLogRows([[
     new Date(),
     posterId,
     delta,
-    note,
     clientId,
     token,
     '',
     ''
   ]]);
+  const statsDelta = Array(MAX_POSTERS).fill(0);
+  statsDelta[posterId - 1] = delta;
+  applyStats(statsDelta);
 
   return textResponse('OK');
 }
 
-function appendRows(rows) {
+function appendLogRows(rows) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheet = ss.getSheetByName(LOG_SHEET) || ss.insertSheet(LOG_SHEET);
   const startRow = sheet.getLastRow() + 1;
@@ -107,6 +113,27 @@ function appendRows(rows) {
   const numRows = rows.length;
   const numCols = rows[0].length;
   sheet.getRange(startRow, startCol, numRows, numCols).setValues(rows);
+}
+
+function applyStats(deltaArr) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(STATS_SHEET) || initializeStatsSheet(ss);
+  const values = sheet.getRange(2, 2, MAX_POSTERS, 1).getValues(); // column B: totals
+
+  for (let i = 0; i < MAX_POSTERS; i++) {
+    const current = Number(values[i][0]) || 0;
+    values[i][0] = current + deltaArr[i];
+  }
+
+  sheet.getRange(2, 2, MAX_POSTERS, 1).setValues(values);
+}
+
+function initializeStatsSheet(ss) {
+  const sheet = ss.insertSheet(STATS_SHEET);
+  sheet.getRange(1, 1, 1, 2).setValues([['Poster ID', 'Total Score']]);
+  const posterIds = Array.from({ length: MAX_POSTERS }, (_, i) => [i + 1, 0]);
+  sheet.getRange(2, 1, MAX_POSTERS, 2).setValues(posterIds);
+  return sheet;
 }
 
 function textResponse(text) {
