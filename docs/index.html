@@ -178,7 +178,6 @@
   .status.ok{color:var(--ok);}
   .status.err{color:var(--danger);}
   .muted{color:var(--muted);font-size:.9rem;margin-top:10px;}
-  .qr-tip{font-size:.9rem;color:var(--muted);margin-top:18px;}
   @media(max-width:720px){
     .grid{grid-template-columns:repeat(3,minmax(0,1fr));}
   }
@@ -211,7 +210,6 @@
     <p class="muted">ネットワークが不安定な場合はブラウザに一時保存し、オンラインに復帰すると自動送信されます。</p>
   </div>
 
-  <p class="qr-tip">※ ポスター用QRコードは <code>https://{username}.github.io/{repo}/?poster=XX</code> を利用できます。</p>
 </div>
 
 <script>
@@ -225,8 +223,6 @@ const QUEUE_KEY = 'poster_queue';
 let busy = false;
 const scores = Array(MAX_POSTERS).fill(0);
 
-const params = new URLSearchParams(location.search);
-const highlightedPoster = parseInt(params.get('poster') || '', 10);
 
 function formatScore(value) {
   return value > 0 ? `+${value}` : String(value);
@@ -237,7 +233,7 @@ function buildGrid() {
   const cells = [];
   for (let i = 0; i < MAX_POSTERS; i++) {
     const posterId = i + 1;
-    const highlight = highlightedPoster === posterId;
+    const highlight = false;
     cells.push(`
       <div class="poster-card${highlight ? ' highlighted' : ''}" data-poster="${posterId}">
         <div class="poster-id">#${posterId}</div>
@@ -616,14 +612,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   renderSummary();
 
-  if (
-    Number.isInteger(highlightedPoster) &&
-    highlightedPoster >= 1 &&
-    highlightedPoster <= MAX_POSTERS
-  ) {
-    const target = document.querySelector(`.poster-card[data-poster="${highlightedPoster}"]`);
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
 });
 </script>
 </body>
