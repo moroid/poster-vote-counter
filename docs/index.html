@@ -147,6 +147,30 @@
   .modal p{margin:0;color:var(--muted);font-size:.95rem;}
   .modal-buttons{margin-top:20px;display:flex;justify-content:flex-end;gap:12px;}
   .modal-buttons button{min-width:88px;}
+  .modal.modal-loading{text-align:center;}
+  .modal.modal-loading .spinner{
+    width:42px;
+    height:42px;
+    margin:0 auto 16px;
+    border:4px solid #d1d5db;
+    border-top-color:var(--primary);
+    border-radius:50%;
+    animation:spin 1s linear infinite;
+  }
+  .modal.modal-loading .modal-message{color:var(--muted);font-size:.95rem;}
+  @keyframes spin{
+    from{transform:rotate(0deg);}
+    to{transform:rotate(360deg);}
+  }
+  .modal-list{
+    list-style:none;
+    margin:16px 0 0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .modal-list .summary-item{background:#f1f5f9;}
   .actions{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;}
   .actions .btn{flex:1 1 200px;}
   .btn.primary.submit{width:auto;}
@@ -203,6 +227,10 @@ const scores = Array(MAX_POSTERS).fill(0);
 
 const params = new URLSearchParams(location.search);
 const highlightedPoster = parseInt(params.get('poster') || '', 10);
+
+function formatScore(value) {
+  return value > 0 ? `+${value}` : String(value);
+}
 
 function buildGrid() {
   const grid = document.getElementById('posterGrid');
@@ -273,9 +301,8 @@ function renderSummaryList() {
   }
 
   const listItems = items.map(item => {
-    const sign = item.score > 0 ? '+' : '';
     const cls = item.score > 0 ? 'summary-item positive' : 'summary-item negative';
-    return `<li class="${cls}"><span class="summary-poster">#${item.posterId}</span><span class="summary-score">${sign}${item.score}</span></li>`;
+    return `<li class="${cls}"><span class="summary-poster">#${item.posterId}</span><span class="summary-score">${formatScore(item.score)}</span></li>`;
   });
 
   container.innerHTML = `<ul>${listItems.join('')}</ul>`;
@@ -350,6 +377,69 @@ function showResetConfirm() {
     document.body.appendChild(overlay);
     const okButton = overlay.querySelector('[data-action="ok"]');
     if (okButton) okButton.focus();
+  });
+}
+
+function showLoadingModal(message = '送信中です…') {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal modal-loading" role="dialog" aria-live="assertive">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="modal-message">${message}</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  return () => overlay.remove();
+}
+
+function showSubmissionSummary(items) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const sorted = [...items].sort((a, b) => a.poster_id - b.poster_id);
+    const total = sorted.reduce((sum, item) => sum + item.score, 0);
+    const listItems = sorted.map(item => {
+      const cls = item.score > 0 ? 'summary-item positive' : 'summary-item negative';
+      return `<li class="${cls}"><span class="summary-poster">#${item.poster_id}</span><span class="summary-score">${formatScore(item.score)}</span></li>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="submitSummaryTitle">
+        <h3 id="submitSummaryTitle">送信が完了しました</h3>
+        <p>送信件数: ${sorted.length} / 合計スコア: ${formatScore(total)}</p>
+        <ul class="modal-list">${listItems}</ul>
+        <div class="modal-buttons">
+          <button type="button" class="btn primary" data-action="close">閉じる</button>
+        </div>
+      </div>
+    `;
+
+    let closed = false;
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape' || event.key === 'Enter') {
+        event.preventDefault();
+        close();
+      }
+    };
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      overlay.remove();
+      document.removeEventListener('keydown', handleKeydown);
+      resolve();
+    };
+
+    overlay.addEventListener('click', (event) => {
+      const action = event.target.getAttribute('data-action');
+      if (action === 'close' || event.target === overlay) close();
+    });
+
+    document.addEventListener('keydown', handleKeydown);
+    document.body.appendChild(overlay);
+    const closeBtn = overlay.querySelector('[data-action="close"]');
+    if (closeBtn) closeBtn.focus();
   });
 }
 
@@ -470,16 +560,26 @@ async function submitScores() {
 
   busy = true;
   let cleared = false;
+  let closeLoading = showLoadingModal();
+  const hideLoading = () => {
+    if (closeLoading) {
+      closeLoading();
+      closeLoading = null;
+    }
+  };
 
   try {
     if (!navigator.onLine) {
+      hideLoading();
       enqueue(payload);
       setStatus('オフラインのためキューに保存しました。接続復帰後に送信されます。', false);
       cleared = true;
     } else {
       const ok = await postOnce(payload);
+      hideLoading();
       if (ok) {
         setStatus('送信しました。', true);
+        await showSubmissionSummary(updates);
       } else {
         enqueue(payload);
         setStatus('一時的なエラーのためキューに保存しました。', false);
@@ -488,10 +588,12 @@ async function submitScores() {
       await flushQueue();
     }
   } catch (error) {
+    hideLoading();
     enqueue(payload);
     setStatus('送信に失敗したためキューに保存しました。', false);
     cleared = true;
   } finally {
+    hideLoading();
     if (cleared) resetScores();
     setTimeout(() => { busy = false; }, DEBOUNCE_MS);
   }
