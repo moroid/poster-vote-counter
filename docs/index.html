@@ -19,6 +19,7 @@
   button{
     font-size:1rem;padding:8px 12px;border-radius:10px;box-sizing:border-box;cursor:pointer;border:1px solid #d1d5db;background:#fff;
     transition:background .15s,color .15s,border-color .15s;
+    touch-action:manipulation;
   }
   button:disabled{opacity:.6;pointer-events:none;}
   .btn.primary{background:var(--primary);color:#fff;border:none;}
@@ -316,6 +317,10 @@ function renderSummary() {
 function handleGridClick(event) {
   const btn = event.target.closest('.counter-btn');
   if (!btn) return;
+
+  // ダブルタップによる拡大を防ぐため、イベントを即座に処理
+  event.preventDefault();
+  event.stopPropagation();
 
   const posterId = parseInt(btn.getAttribute('data-poster') || '', 10);
   const delta = parseInt(btn.getAttribute('data-delta') || '', 10);
