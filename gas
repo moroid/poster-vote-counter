@@ -1,0 +1,116 @@
+/*** Apps Script: Web API ***/
+const SHEET_ID = '1S62KCYUV8wVTdRsgOXYQXX3K-gY3phIXxfJ7axIOwoI';
+const LOG_SHEET = 'Logs';
+const SHARED_TOKEN = 'CHANGE_ME_OPTIONAL';
+const MAX_POSTERS = 60;
+
+function doGet() {
+  return ContentService
+    .createTextOutput('OK')
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return textResponse('ERROR');
+    }
+
+    const body = JSON.parse(e.postData.contents || '{}');
+    const token = (body.token || '').toString();
+
+    if (SHARED_TOKEN && token !== SHARED_TOKEN) {
+      return textResponse('FORBIDDEN');
+    }
+
+    if (Array.isArray(body.results)) {
+      return handleBatch(body, token);
+    }
+
+    return handleSingle(body, token);
+  } catch (err) {
+    return textResponse('ERROR');
+  }
+}
+
+function handleBatch(body, token) {
+  const entries = body.results;
+  if (!entries.length) {
+    return textResponse('INVALID_RESULTS');
+  }
+
+  const clientId = (body.client_id || '').toString();
+  const submittedAt = (body.submitted_at || '').toString();
+  const batchId = (body.batch_id || Utilities.getUuid()).toString();
+
+  const rows = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const posterId = Number(entry.poster_id);
+    const score = Number(entry.score);
+
+    if (!Number.isInteger(posterId) || posterId < 1 || posterId > MAX_POSTERS) {
+      return textResponse('INVALID_POSTER');
+    }
+    if (!Number.isInteger(score) || score === 0) {
+      return textResponse('INVALID_SCORE');
+    }
+
+    rows.push([
+      new Date(),
+      posterId,
+      score,
+      '', // note is unused in the new UI, keep the column for compatibility
+      clientId,
+      token,
+      batchId,
+      submittedAt
+    ]);
+  }
+
+  appendRows(rows);
+  return textResponse('OK');
+}
+
+function handleSingle(body, token) {
+  const posterId = Number(body.poster_id);
+  const delta = Number(body.delta);
+  const note = (body.note || '').toString();
+  const clientId = (body.client_id || '').toString();
+
+  if (!Number.isInteger(posterId) || posterId < 1 || posterId > MAX_POSTERS) {
+    return textResponse('INVALID_POSTER');
+  }
+  if (![1, -1].includes(delta)) {
+    return textResponse('INVALID_DELTA');
+  }
+
+  appendRows([[
+    new Date(),
+    posterId,
+    delta,
+    note,
+    clientId,
+    token,
+    '',
+    ''
+  ]]);
+
+  return textResponse('OK');
+}
+
+function appendRows(rows) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(LOG_SHEET) || ss.insertSheet(LOG_SHEET);
+  const startRow = sheet.getLastRow() + 1;
+  const startCol = 1;
+  const numRows = rows.length;
+  const numCols = rows[0].length;
+  sheet.getRange(startRow, startCol, numRows, numCols).setValues(rows);
+}
+
+function textResponse(text) {
+  return ContentService
+    .createTextOutput(text)
+    .setMimeType(ContentService.MimeType.TEXT);
+}

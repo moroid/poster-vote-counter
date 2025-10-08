@@ -6,109 +6,158 @@
 <title>Poster Counter</title>
 <style>
   :root {
-    --fg:#222; --bg:#fafafa; --muted:#6b7280; --primary:#2563eb; --danger:#ef4444; --ok:#16a34a;
+    --fg:#222; --bg:#fafafa; --muted:#6b7280;
+    --primary:#2563eb; --danger:#ef4444; --ok:#16a34a;
   }
   html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
-  .wrap{max-width:640px;margin:0 auto;padding:24px;}
-  h1{font-size:1.25rem;margin:0 0 8px;}
+  .wrap{max-width:960px;margin:0 auto;padding:24px;}
+  h1{font-size:1.35rem;margin:0 0 12px;}
   .desc{color:var(--muted);margin-bottom:16px;}
-  label{display:block;font-size:.9rem;margin:14px 0 6px;}
-  select,input,button,textarea{
-    font-size:1rem;padding:10px;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box;width:100%;
-    background:#fff;
+  select,input,textarea{
+    font-size:1rem;padding:10px;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box;width:100%;background:#fff;
   }
-  .row{display:flex;gap:10px;}
-  .row > *{flex:1;}
-  .btns{display:flex;gap:10px;margin-top:14px;}
-  .btn{cursor:pointer;}
+  button{
+    font-size:1rem;padding:10px;border-radius:8px;box-sizing:border-box;cursor:pointer;border:1px solid #d1d5db;background:#fff;
+    transition:background .15s,color .15s,border-color .15s;
+  }
+  button:disabled{opacity:.6;pointer-events:none;}
   .btn.primary{background:var(--primary);color:#fff;border:none;}
-  .btn.danger{background:var(--danger);color:#fff;border:none;}
-  .status{margin-top:12px;font-size:.95rem;}
-  .status.ok{color:var(--ok)}
-  .status.err{color:var(--danger)}
+  .btn.primary:hover{background:#1d4ed8;}
+  .btn.danger,.counter-btn.minus{background:var(--danger);color:#fff;border:none;}
+  .btn.danger:hover,.counter-btn.minus:hover{background:#dc2626;}
+  .counter-btn.plus{background:var(--ok);color:#fff;border:none;}
+  .counter-btn.plus:hover{background:#15803d;}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;}
+  .poster-card{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;border:1px solid #d1d5db;border-radius:12px;background:#f9fafb;}
+  .poster-card.highlighted{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.15);}
+  .poster-id{font-weight:600;font-size:1rem;}
+  .counter{display:flex;align-items:center;gap:10px;width:100%;justify-content:center;}
+  .counter-btn{flex:0 0 60px;}
+  .score{min-width:36px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;}
+  .btn.primary.submit{width:100%;margin-top:20px;}
+  .status{margin-top:14px;font-size:.95rem;}
+  .status.ok{color:var(--ok);}
+  .status.err{color:var(--danger);}
   .muted{color:var(--muted);font-size:.9rem;margin-top:10px;}
-  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.04);}
-  .qr-tip{font-size:.9rem;color:var(--muted);}
+  .qr-tip{font-size:.9rem;color:var(--muted);margin-top:18px;}
+  @media(max-width:720px){
+    .grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+  }
+  @media(max-width:520px){
+    .grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Poster Counter</h1>
-  <p class="desc">ポスターIDを選び、＋1 / −1 でカウントします。URLに <code>?poster=23</code> を付けると初期選択されます。</p>
+  <p class="desc">ポスターごとの得票をローカルで集計し、まとまった結果をまとめて送信できます。</p>
 
   <div class="card">
-    <label for="poster">Poster ID（1〜60）</label>
-    <select id="poster" aria-label="Poster ID"></select>
+    <div id="posterGrid" class="grid" role="group" aria-label="ポスター別スコア"></div>
 
-    <div class="row">
-      <div>
-        <label for="note">メモ（任意）</label>
-        <input id="note" placeholder="例：混雑／質問多い など">
-      </div>
-    </div>
-
-    <div class="btns">
-      <button class="btn primary" id="btnPlus"  type="button">＋1</button>
-      <button class="btn danger"  id="btnMinus" type="button">−1</button>
-    </div>
+    <button class="btn primary submit" id="submitBtn" type="button">集計を送信</button>
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
-    <div class="muted">
-      オフライン時は自動で再送キューに溜め、次回オンラインで送信します。連打は短時間抑制されます。
-    </div>
+    <p class="muted">ネットワークが不安定な場合はブラウザに一時保存し、オンラインに復帰すると自動送信されます。</p>
   </div>
 
-  <p class="qr-tip">※ 各ポスターのQRは <code>https://{username}.github.io/{repo}/?poster=XX</code> を印刷してください。</p>
+  <p class="qr-tip">※ ポスター用QRコードは <code>https://{username}.github.io/{repo}/?poster=XX</code> を利用できます。</p>
 </div>
 
 <script>
-/** 設定（変更） **/
-const GAS_URL = "https://script.google.com/macros/s/AKfycbyUtyPZhetRhDzRXZI5fSfzMZQUAfD5RnCTEPgPF6R6HQvefeozN2cqaDsnU6R2hNQ/exec"; // ←置換
-const SHARED_TOKEN = "CHANGE_ME_OPTIONAL"; // Apps ScriptのSHARED_TOKENと一致させる。使わないなら "" のまま
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxan3dmxfJvSrWAyD7JTFBzd4VBXbhECJJv2brqlWwcOZ_A6FxdAo_DG6XYyU3tmf2J/exec";
+const SHARED_TOKEN = "CHANGE_ME_OPTIONAL";
 
-/** 内部状態 **/
-const params = new URLSearchParams(location.search);
-const defaultPoster = parseInt(params.get('poster') || '1');
 const MAX_POSTERS = 60;
 const DEBOUNCE_MS = 800;
+const QUEUE_KEY = 'poster_queue';
+
 let busy = false;
+const scores = Array(MAX_POSTERS).fill(0);
 
-/** UI初期化 **/
-function posterOptions(n=60) {
-  return Array.from({length:n}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join('');
-}
-function setDefaultPoster() {
-  const sel = document.getElementById('poster');
-  sel.innerHTML = posterOptions(MAX_POSTERS);
-  if (Number.isInteger(defaultPoster) && defaultPoster>=1 && defaultPoster<=MAX_POSTERS) {
-    sel.value = String(defaultPoster);
+const params = new URLSearchParams(location.search);
+const highlightedPoster = parseInt(params.get('poster') || '', 10);
+
+function buildGrid() {
+  const grid = document.getElementById('posterGrid');
+  const cells = [];
+  for (let i = 0; i < MAX_POSTERS; i++) {
+    const posterId = i + 1;
+    const highlight = highlightedPoster === posterId;
+    cells.push(`
+      <div class="poster-card${highlight ? ' highlighted' : ''}" data-poster="${posterId}">
+        <div class="poster-id">#${posterId}</div>
+        <div class="counter">
+          <button type="button" class="btn counter-btn minus" data-delta="-1" data-poster="${posterId}">-1</button>
+          <span class="score" id="score-${posterId}">0</span>
+          <button type="button" class="btn counter-btn plus" data-delta="1" data-poster="${posterId}">+1</button>
+        </div>
+      </div>
+    `);
   }
+  grid.innerHTML = cells.join('');
 }
 
-/** ステータス表示 **/
-function setStatus(msg, ok=false) {
+function setStatus(message = '', ok = false) {
   const el = document.getElementById('status');
-  el.textContent = msg;
-  el.className = 'status ' + (ok ? 'ok' : 'err');
+  el.textContent = message;
+  el.className = message ? `status ${ok ? 'ok' : 'err'}` : 'status';
 }
 
-/** 端末IDの永続化 **/
 function getClientId() {
   let id = localStorage.getItem('client_id');
   if (!id) {
-    id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now())+'-'+Math.random().toString(36).slice(2);
+    id = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     localStorage.setItem('client_id', id);
   }
   return id;
 }
 
-/** 再送キュー（オフライン時） **/
-const QUEUE_KEY = 'poster_queue';
+function updateScoreDisplay(posterId) {
+  const el = document.getElementById(`score-${posterId}`);
+  if (el) el.textContent = scores[posterId - 1];
+}
+
+function handleGridClick(event) {
+  const btn = event.target.closest('.counter-btn');
+  if (!btn) return;
+
+  const posterId = parseInt(btn.getAttribute('data-poster') || '', 10);
+  const delta = parseInt(btn.getAttribute('data-delta') || '', 10);
+
+  if (!Number.isInteger(posterId) || posterId < 1 || posterId > MAX_POSTERS) return;
+  if (![1, -1].includes(delta)) return;
+
+  scores[posterId - 1] += delta;
+  updateScoreDisplay(posterId);
+  setStatus('', true);
+}
+
+function resetScores() {
+  scores.fill(0);
+  document.querySelectorAll('.score').forEach(el => { el.textContent = '0'; });
+}
+
 function enqueue(payload) {
   const q = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
   q.push(payload);
   localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
 }
+
+async function postOnce(payload) {
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify(payload)
+  });
+  const text = await res.text();
+  if (text.trim() === 'OK') return true;
+  setStatus(`エラー: ${text}`, false);
+  return false;
+}
+
 async function flushQueue() {
   const q = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
   if (!q.length) return;
@@ -122,81 +171,72 @@ async function flushQueue() {
     }
   }
   localStorage.setItem(QUEUE_KEY, JSON.stringify(remain));
-  if (remain.length===0) setStatus('オフライン中のデータを送信しました。', true);
+  if (!remain.length) setStatus('保留分の送信が完了しました。', true);
 }
 
-/** 実送信：text/plainでプリフライト回避 **/
-async function postOnce(payload) {
-  const res = await fetch(GAS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" }, // ←プリフライト回避
-    body: JSON.stringify(payload)
-  });
-  const text = await res.text();
-  if (text === 'OK') return true;
-  // 軽微なバリデーションエラーも返す
-  setStatus(`エラー: ${text}`, false);
-  return false;
-}
-
-/** 送信ハンドラ **/
-async function send(delta) {
+async function submitScores() {
   if (busy) return;
+
+  const updates = scores
+    .map((score, index) => ({ poster_id: index + 1, score }))
+    .filter(item => item.score !== 0);
+
+  if (!updates.length) {
+    setStatus('送信するスコアがありません。', false);
+    return;
+  }
+
+  const payload = {
+    results: updates,
+    client_id: getClientId(),
+    token: SHARED_TOKEN,
+    submitted_at: new Date().toISOString()
+  };
+
   busy = true;
-
-  const poster_id = parseInt(document.getElementById('poster').value);
-  const note = document.getElementById('note').value.trim();
-  const client_id = getClientId();
-
-  // 簡易入力検証
-  if (!Number.isInteger(poster_id) || poster_id<1 || poster_id>MAX_POSTERS) {
-    setStatus('Poster ID が不正です。', false);
-    busy = false;
-    return;
-  }
-  if (![1,-1].includes(delta)) {
-    setStatus('内部エラー（delta）。', false);
-    busy = false;
-    return;
-  }
-
-  const payload = { poster_id, delta, note, client_id, token: SHARED_TOKEN };
+  let cleared = false;
 
   try {
-    // オンライン判定（参考程度）
     if (!navigator.onLine) {
       enqueue(payload);
-      setStatus('オフラインのためキューへ保存しました。復帰後に自動送信します。', false);
+      setStatus('オフラインのためキューに保存しました。接続復帰後に送信されます。', false);
+      cleared = true;
     } else {
       const ok = await postOnce(payload);
       if (ok) {
-        setStatus('送信しました！', true);
-        document.getElementById('note').value = '';
+        setStatus('送信しました。', true);
       } else {
-        // サーバ側でエラー → 手元に保持
         enqueue(payload);
-        setStatus('一時的なエラーのためキューへ保存しました。', false);
+        setStatus('一時的なエラーのためキューに保存しました。', false);
       }
-      // 溜まっている分があれば順次送信
+      cleared = true;
       await flushQueue();
     }
-  } catch (e) {
+  } catch (error) {
     enqueue(payload);
-    setStatus('送信に失敗。ネット接続を確認しましたら自動で再送します。', false);
+    setStatus('送信に失敗したためキューに保存しました。', false);
+    cleared = true;
   } finally {
-    setTimeout(()=>{ busy = false; }, DEBOUNCE_MS); // 連打抑制
+    if (cleared) resetScores();
+    setTimeout(() => { busy = false; }, DEBOUNCE_MS);
   }
 }
 
-/** イベント登録 **/
 document.addEventListener('DOMContentLoaded', () => {
-  setDefaultPoster();
-  document.getElementById('btnPlus').addEventListener('click', () => send(1));
-  document.getElementById('btnMinus').addEventListener('click', () => send(-1));
-  // 復帰時に再送
+  buildGrid();
+  document.getElementById('posterGrid').addEventListener('click', handleGridClick);
+  document.getElementById('submitBtn').addEventListener('click', submitScores);
   window.addEventListener('online', flushQueue);
-  // ページ表示時にも一度試みる
   flushQueue();
+
+  if (
+    Number.isInteger(highlightedPoster) &&
+    highlightedPoster >= 1 &&
+    highlightedPoster <= MAX_POSTERS
+  ) {
+    const target = document.querySelector(`.poster-card[data-poster="${highlightedPoster}"]`);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 });
 </script>
 </body>
