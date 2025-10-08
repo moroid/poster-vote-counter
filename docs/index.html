@@ -184,6 +184,11 @@
   @media(max-width:520px){
     .grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   }
+  /* スマホの拡大・縮小を禁止 */
+  body , input , textarea , select {
+    /* 入力欄にフォーカスが当たっても拡大しない */
+    font-size:17px;
+  }
 </style>
 </head>
 <body>
@@ -613,6 +618,22 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSummary();
 
 });
+
+/* スマホの拡大・縮小を禁止 */
+/* ピンチインピンチアウトによる拡大縮小を禁止 */
+document.documentElement.addEventListener('touchstart', function (e) {
+  if (e.touches.length >= 2) {e.preventDefault();}
+}, {passive: false});
+
+/* ダブルタップによる拡大を禁止 */
+var t = 0;
+document.documentElement.addEventListener('touchend', function (e) {
+  var now = new Date().getTime();
+  if ((now - t) < 350){
+    e.preventDefault();
+  }
+  t = now;
+}, false);
 </script>
 </body>
 </html>
