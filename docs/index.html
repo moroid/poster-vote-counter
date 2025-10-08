@@ -17,7 +17,7 @@
     font-size:1rem;padding:10px;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box;width:100%;background:#fff;
   }
   button{
-    font-size:1rem;padding:10px;border-radius:8px;box-sizing:border-box;cursor:pointer;border:1px solid #d1d5db;background:#fff;
+    font-size:.95rem;padding:8px 10px;border-radius:8px;box-sizing:border-box;cursor:pointer;border:1px solid #d1d5db;background:#fff;
     transition:background .15s,color .15s,border-color .15s;
   }
   button:disabled{opacity:.6;pointer-events:none;}
@@ -32,10 +32,12 @@
   .poster-card{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;border:1px solid #d1d5db;border-radius:12px;background:#f9fafb;}
   .poster-card.highlighted{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.15);}
   .poster-id{font-weight:600;font-size:1rem;}
-  .counter{display:flex;align-items:center;gap:10px;width:100%;justify-content:center;}
-  .counter-btn{flex:0 0 60px;}
+  .counter{display:flex;align-items:center;gap:6px;width:100%;justify-content:center;}
+  .counter-btn{flex:0 0 48px;padding:6px 0;}
   .score{min-width:36px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;}
-  .btn.primary.submit{width:100%;margin-top:20px;}
+  .actions{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;}
+  .actions .btn{flex:1 1 200px;}
+  .btn.primary.submit{width:auto;}
   .status{margin-top:14px;font-size:.95rem;}
   .status.ok{color:var(--ok);}
   .status.err{color:var(--danger);}
@@ -57,7 +59,10 @@
   <div class="card">
     <div id="posterGrid" class="grid" role="group" aria-label="ポスター別スコア"></div>
 
-    <button class="btn primary submit" id="submitBtn" type="button">集計を送信</button>
+    <div class="actions">
+      <button class="btn" id="resetBtn" type="button">すべてリセット</button>
+      <button class="btn primary submit" id="submitBtn" type="button">集計を送信</button>
+    </div>
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
     <p class="muted">ネットワークが不安定な場合はブラウザに一時保存し、オンラインに復帰すると自動送信されます。</p>
@@ -146,6 +151,68 @@ function enqueue(payload) {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
 }
 
+function sanitizeQueue() {
+  const raw = localStorage.getItem(QUEUE_KEY);
+  if (!raw) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    localStorage.removeItem(QUEUE_KEY);
+    return;
+  }
+  if (!Array.isArray(parsed)) {
+    localStorage.removeItem(QUEUE_KEY);
+    return;
+  }
+
+  const cleaned = [];
+  for (const item of parsed) {
+    if (item && Array.isArray(item.results)) {
+      const validResults = item.results
+        .map(entry => ({
+          poster_id: Number(entry.poster_id),
+          score: Number(entry.score)
+        }))
+        .filter(entry =>
+          Number.isInteger(entry.poster_id) &&
+          entry.poster_id >= 1 &&
+          entry.poster_id <= MAX_POSTERS &&
+          Number.isInteger(entry.score) &&
+          entry.score !== 0
+        );
+      if (validResults.length) {
+        cleaned.push({
+          ...item,
+          results: validResults
+        });
+      }
+      continue;
+    }
+
+    const posterId = Number(item && item.poster_id);
+    const delta = Number(item && item.delta);
+    if (
+      Number.isInteger(posterId) &&
+      posterId >= 1 &&
+      posterId <= MAX_POSTERS &&
+      [1, -1].includes(delta)
+    ) {
+      cleaned.push({
+        ...item,
+        poster_id: posterId,
+        delta
+      });
+    }
+  }
+
+  if (cleaned.length) {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(cleaned));
+  } else {
+    localStorage.removeItem(QUEUE_KEY);
+  }
+}
+
 async function postOnce(payload) {
   const res = await fetch(GAS_URL, {
     method: "POST",
@@ -214,18 +281,25 @@ async function submitScores() {
     }
   } catch (error) {
     enqueue(payload);
-    setStatus('送信に失敗したためキューに保存しました。', false);
-    cleared = true;
-  } finally {
-    if (cleared) resetScores();
-    setTimeout(() => { busy = false; }, DEBOUNCE_MS);
-  }
+  setStatus('送信に失敗したためキューに保存しました。', false);
+  cleared = true;
+} finally {
+  if (cleared) resetScores();
+  setTimeout(() => { busy = false; }, DEBOUNCE_MS);
+}
+}
+
+function resetAll() {
+  resetScores();
+  setStatus('入力中の値をリセットしました。', true);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  sanitizeQueue();
   buildGrid();
   document.getElementById('posterGrid').addEventListener('click', handleGridClick);
   document.getElementById('submitBtn').addEventListener('click', submitScores);
+  document.getElementById('resetBtn').addEventListener('click', resetAll);
   window.addEventListener('online', flushQueue);
   flushQueue();
 
